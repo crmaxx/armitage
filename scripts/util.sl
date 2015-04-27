@@ -13,7 +13,7 @@ import java.awt.*;
 import java.awt.event.*;
 import ui.*;
 
-global('$MY_ADDRESS $RPC_CONSOLE');
+global('$MY_ADDRESS $RPC_CONSOLE $CLIENT_ADDRESS');
 
 sub call_async {
 	if (size(@_) > 2) {
@@ -69,7 +69,7 @@ sub setupConsoleStyle {
 		$style = join("\n", readAll($handle));
 		closef($handle);
 	}
-	
+
 	[$1 setStyle: filter_data("console_style", $style)[0]];
 }
 
@@ -86,7 +86,7 @@ sub setupEventStyle {
 }
 
 sub createDisplayTab {
-	local('$console $host $queue $file');
+	local('$console $host $queue $file $onclose');
 	$queue = [new ConsoleQueue: rand(@POOL)];
 	if ($1 eq "Log Keystrokes") {
 		$console = [new ActivityConsole: $preferences];
@@ -98,7 +98,12 @@ sub createDisplayTab {
 	[$queue setDisplay: $console];
 	[new QueueTabCompletion: $console, $queue];
 	logCheck($console, iff($host, $host, "all"), iff($file, $file, strrep($1, " ", "_")));
-	[$frame addTab: $1, $console, lambda({ [$queue destroy]; }, \$queue)];
+	[$frame addTab: $1, $console, lambda({
+		[$queue destroy];
+		if ($onclose) {
+			[$onclose];
+		}
+	}, \$queue, \$onclose)];
 	return $queue;
 }
 
@@ -221,6 +226,11 @@ sub setupHandlers {
 			[$cortana start: $MY_ADDRESS];
 		}
 
+		if (!$REMOTE) {
+			# setup our listeners...  only when we're not connected to a teamserver (in which case, they're already setup)
+			setupPersistentListeners();
+		}
+
 		if ($1 == -1) {
 			createDefaultHandler();
 		}
@@ -282,7 +292,7 @@ sub getBindAddress {
 			local('$address');
 			$address = convertAll([$queue tabComplete: "setg LHOST "]);
 			$address = split('\\s+', $address[0])[2];
-	
+
 			if ($address eq "127.0.0.1") {
 				[lambda({
 					ask_async("Could not determine attack computer IP\nWhat is it?", "", $this);
@@ -350,7 +360,7 @@ sub startMetasploit {
 					closef($msg);
 
 					askYesNo($text, "Uh oh!", {
-						[gotoURL("http://www.fastandeasyhacking.com/nomsfrpcd")];
+						[gotoURL("http://www.advancedpentest.com/nomsfrpcd")];
 					});
 					return;
 				}
@@ -385,16 +395,15 @@ sub connectDialog {
 		$msfrpc_handle = $null;
 	}
 
-	local('$dialog $host $port $ssl $user $pass $button $start $center $help $helper');
+	local('$dialog $host $port $ssl $user $pass $token $button $start $center $help $helper');
 	$dialog = window("Connect...", 0, 0);
-	
+
 	# setup our nifty form fields..
 
 	$host = [new ATextField: [$preferences getProperty: "connect.host.string", "127.0.0.1"], 20];
-	$port = [new ATextField: [$preferences getProperty: "connect.port.string", "55553"], 10];
-	
-	$user = [new ATextField: [$preferences getProperty: "connect.user.string", "msf"], 20];
-	$pass = [new APasswordField: [$preferences getProperty: "connect.pass.string", "test"], 20];
+	$port = [new ATextField: [$preferences getProperty: "connect.port.string", "50505"], 10];
+
+	$token = [new ATextField: [$preferences getProperty: "connect.token.string", "47446204cfaec8678e5ca7a3fc0fd850"], 20];
 
 	$button = [new JButton: "Connect"];
 	[$button setToolTipText: "<html>Connects to Metasploit.</html>"];
@@ -409,21 +418,22 @@ sub connectDialog {
 
 	[$center add: label_for("Host", 70, $host)];
 	[$center add: label_for("Port", 70, $port)];
-	[$center add: label_for("User", 70, $user)];
-	[$center add: label_for("Pass", 70, $pass)];
+
+	[$center add: label_for("Token", 70, $token)];
 
 	[$dialog add: $center, [BorderLayout CENTER]];
 	[$dialog add: center($button, $help), [BorderLayout SOUTH]];
 
 	[$button addActionListener: lambda({
-		local('$h $p $u $s @o');
+		local('$h $p $t @o');
 
 		# clean up the user options...
-		@o = @([$host getText], [$port getText], [$user getText], [$pass getPass]);
+		@o = @([$host getText], [$port getText], [$token getText]);
 		@o = map({ return ["$1" trim]; }, @o);
-		($h, $p, $u, $s) = @o;
+		($h, $p, $t) = @o;
 
 		[$dialog setVisible: 0];
+		$CLIENT_ADDRESS = $h;
 
 		if ($h eq "127.0.0.1" || $h eq "::1" || $h eq "localhost") {
 			if ($__frame__ && [$__frame__ checkLocal]) {
@@ -440,22 +450,14 @@ sub connectDialog {
 					showError("You must connect to a team server hosted on Linux.\nConnecting to a Metasploit RPC server on Windows is\nnot supported.");
 					[$dialog setVisible: 1];
 				}
-				else {
-					askYesNo("A Metasploit RPC server is not running or\nnot accepting connections yet. Would you\nlike me to start Metasploit's RPC server\nfor you?", "Start Metasploit?", lambda({
-						startMetasploit($u, $s, $p);
-
-						# this is the only path to connect to a local metasploit
-						connectToMetasploit($h, $p, $u, $s);
-					}, \$u, \$s, \$p, \$h));
-				}
 				return;
 			}
 		}
 
-		connectToMetasploit($h, $p, $u, $s);
-	}, \$dialog, \$host, \$port, \$user, \$pass)];
+		connectToMetasploit($h, $p, $t);
+	}, \$dialog, \$host, \$port, \$token)];
 
-	[$help addActionListener: gotoURL("http://www.fastandeasyhacking.com/start")];
+	[$help addActionListener: gotoURL("http://www.advancedpentest.com/start")];
 
 	[$dialog pack];
 	[$dialog setLocationRelativeTo: $null];
@@ -512,7 +514,7 @@ sub _module_execute {
 			$3['SMBPass'] = fixPass($3['SMBPass']);
 		}
 
-		# okie then, let's create a console and execute all of this stuff...	
+		# okie then, let's create a console and execute all of this stuff...
 
 		local('$queue $key $value');
 
@@ -520,7 +522,7 @@ sub _module_execute {
 
 		[$queue addCommand: $null, "use $1 $+ / $+ $2"];
 		[$queue setOptions: $3];
-	
+
 		if ($1 eq "exploit") {
 			[$queue addCommand: $null, "exploit -j"];
 		}
@@ -543,6 +545,17 @@ sub deleteOnExit {
 	[[new java.io.File: getFileProper($1)] deleteOnExit];
 }
 
+sub copyFile {
+	local('$handle $data');
+	$handle = openf($1);
+	$data = readb($handle, -1);
+	closef($handle);
+
+	$handle = openf("> $+ $2");
+	writeb($handle, $data);
+	closef($handle);
+}
+
 sub listDownloads {
 	this('%types');
 	local('$files $root $findf $hosts $host');
@@ -556,7 +569,7 @@ sub listDownloads {
 			# determine the file content type
 			local('$type $handle $data $path');
 			if ($1 in %types) {
-				$type = %types[$1];				
+				$type = %types[$1];
 			}
 			else {
 				$handle = openf($1);

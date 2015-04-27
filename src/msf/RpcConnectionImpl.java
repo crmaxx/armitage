@@ -13,7 +13,7 @@ import org.w3c.dom.*;
 import armitage.ArmitageBuffer;
 
 /**
- * This is a modification of msfgui/RpcConnection.java by scriptjunkie. Taken from 
+ * This is a modification of msfgui/RpcConnection.java by scriptjunkie. Taken from
  * the Metasploit Framework Java GUI.
  */
 public abstract class RpcConnectionImpl implements RpcConnection, Async {
@@ -49,7 +49,7 @@ public abstract class RpcConnectionImpl implements RpcConnection, Async {
 	}
 
 	/** Constructor sets up a connection and authenticates. */
-	public RpcConnectionImpl(String username, String password, String host, int port, boolean secure, boolean debugf) {
+	public RpcConnectionImpl(String token, String host, int port, boolean secure, boolean debugf) {
 	}
 
 	/** Destructor cleans up. */

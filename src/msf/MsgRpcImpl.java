@@ -21,7 +21,7 @@ public class MsgRpcImpl extends RpcConnectionImpl {
 	/**
 	 * Creates a new URL to use as the basis of a connection.
 	 */
-	public MsgRpcImpl(String username, String password, String host, int port, boolean ssl, boolean debugf) throws MalformedURLException {
+	public MsgRpcImpl(String token, String host, int port, boolean ssl, boolean debugf) throws MalformedURLException {
 		if (ssl) { // Install the all-trusting trust manager & HostnameVerifier
 			try {
 				SSLContext sc = SSLContext.getInstance("SSL");
@@ -54,15 +54,23 @@ public class MsgRpcImpl extends RpcConnectionImpl {
 			u = new URL("http", host, port, "/api/1.0/");
 		}
 
-		/* login to msf server */
-		Object[] params = new Object[]{ username, password };
-		Map results = exec("auth.login",params);
+		// /* login to msf server */
+		// Object[] params = new Object[]{ username, password };
+		// Map results = exec("auth.login",params);
 
-		/* save the temp token (lasts for 5 minutes of inactivity) */
-		rpcToken = results.get("token").toString();
+		// /* save the temp token (lasts for 5 minutes of inactivity) */
+		// rpcToken = results.get("token").toString();
+		Object[] params = new Object[]{ token };
+		Map results = exec("core.version", params);
+
+		if (Boolean.valueOf(results.get("error").toString())) {
+			System.out.println("error_message is " + results.get("error_message").toString());
+		} else {
+			System.out.println("version is " + results.get("version").toString());
+		}
 
 		/* generate a non-expiring token and use that */
-		params = new Object[]{ rpcToken };
+		params = new Object[]{ token };
 		results = exec("auth.token_generate", params);
 		rpcToken = results.get("token").toString();
 	}

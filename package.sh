@@ -1,7 +1,7 @@
 #!/bin/bash
 #
 # I know Apache Ant does all of this stuff... I hate working with XML though
-# 
+#
 
 rm -f armitage.zip
 rm -f armitage.tgz
@@ -24,7 +24,7 @@ cp readme.txt armitage
 cp whatsnew.txt armitage
 cp -r dist/unix/* armitage
 
-	# kill the silly .svn file
+# kill the silly .svn file
 rm -rf armitage/.svn
 tar zcvf armitage.tgz armitage
 

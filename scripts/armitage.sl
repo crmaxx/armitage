@@ -104,7 +104,7 @@ sub showHost {
 	}
 
 	if (size($sessions) > 0) {
-		push(@overlay, 'resources/hacked.png'); 
+		push(@overlay, 'resources/hacked.png');
 	}
 	else {
 		push(@overlay, 'resources/computer.png');
@@ -114,32 +114,26 @@ sub showHost {
 }
 
 sub connectToMetasploit {
-	local('$thread $5');
-	$thread = [new Thread: lambda(&_connectToMetasploit, \$1, \$2, \$3, \$4, \$5)];
+	local('$thread $4');
+	$thread = [new Thread: lambda(&_connectToMetasploit, \$1, \$2, \$3, \$4)];
 	[$thread start];
 }
 
 sub _connectToMetasploit {
 	global('$database $aclient $client $mclient $console @exploits @auxiliary @payloads @post');
-
 	# reset rejected fingerprints
 	let(&verify_server, %rejected => %());
-
 	# update preferences
-
 	local('%props $property $value $flag $exception');
 	%props['connect.host.string'] = $1;
 	%props['connect.port.string'] = $2;
-	%props['connect.user.string'] = $3;
-	%props['connect.pass.string'] = $4;
-
-	if ($5 is $null) {
+	%props['connect.token.string'] = $3;
+	if ($4 is $null) {
 		foreach $property => $value (%props) {
 			[$preferences setProperty: $property, $value];
 		}
 	}
 	savePreferences();
-
 	# intermediate object to track disconnect notifications
 	$DNOTIFIER = [new DisconnectNotifier];
 	[$DNOTIFIER addDisconnectListener: {
@@ -149,11 +143,9 @@ sub _connectToMetasploit {
 		# closing all connections should trigger a cascading effect of sorts, to kick in normal disconnect behavior
 		map({ closef($1); }, @CLOSEME);
 	}];
-
 	# setup progress monitor
 	local('$progress');
 	$progress = [new ProgressMonitor: $null, "Connecting to $1 $+ : $+ $2", "first try... wish me luck.", 0, 100];
-
 	# keep track of whether we're connected to a local or remote Metasploit instance. This will affect what we expose.
 	$REMOTE = iff($1 eq "127.0.0.1" || $1 eq "::1" || $1 eq "localhost", $null, 1);
 
@@ -177,20 +169,22 @@ sub _connectToMetasploit {
 
 			# connecting locally? go to Metasploit directly...
 			if ($REMOTE is $null) {
-				$client = [new MsgRpcImpl: $3, $4, $1, long($2), $null, $debug];
+				$client = [new MsgRpcImpl: $3, $1, long($2), $null, $debug];
 				$aclient = [new RpcAsync: $client];
 				$mclient = $client;
 				push(@POOL, $aclient);
+				checkVersion();
 				initConsolePool();
+				init_cloudstrike_hooks();
+				init_beacon_hooks();
 				$DESCRIBE = "localhost";
 			}
 			# we have a team server... connect and authenticate to it.
 			else {
 				[$progress setNote: "Connected: logging in"];
 				$client = c_client($1, $2);
-				$mclient = setup_collaboration($3, $4, $1, $2);
+				$mclient = setup_collaboration($3, $1, $2);
 				$aclient = $mclient;
-
 				if ($mclient is $null) {
 					[$progress close];
 					return;
@@ -198,12 +192,11 @@ sub _connectToMetasploit {
 				else {
 					[$progress setNote: "Connected: authenticated"];
 				}
-
 				# create six additional connections to team server... for balancing consoles.
 				local('$x $cc');
 				for ($x = 0; $x < 6; $x++) {
 					$cc = c_client($1, $2);
-					call($cc, "armitage.validate", $3, $4, $null, "armitage", 140921);
+					call($cc, "armitage.validate", $3, $null, "cobaltstrike", 140921);
 					push(@POOL, $cc);
 				}
 			}
@@ -216,11 +209,12 @@ sub _connectToMetasploit {
 			sleep(2500);
 		}
 	}
-
+	print_error("_connectToMetasploit1");
 	# first things first, get version information...
 	local('$rep $major $minor $update');
+	print_error("mclient=$mclient.rpcToken");
 	$rep = call($mclient, "core.version");
-
+	print_error("rep=$rep");
 	if ($rep['version'] ismatch '(\d+)\.(\d+)\.(.*?)') {
 		($major, $minor, $update) = matched();
 		$MSFVERSION = ($major * 10000) + ($minor * 100) + $update;
@@ -230,15 +224,15 @@ sub _connectToMetasploit {
 			[System exit: 0];
 		}
 	}
-
+	print_error("_connectToMetasploit4");
 	# now go and do everything else...
 	let(&postSetup, \$progress);
-
+	print_error("_connectToMetasploit5");
 	[$progress setNote: "Connected: Getting base directory"];
 	[$progress setProgress: 30];
-
+	print_error("_connectToMetasploit6");
 	setupBaseDirectory();
-
+	print_error("_connectToMetasploit7");
 	if (!$REMOTE) {
 		[$progress setNote: "Connected: Connecting to database"];
 		[$progress setProgress: 40];
@@ -262,7 +256,7 @@ sub _connectToMetasploit {
 			[System exit: 0];
 		}
 	}
-
+	print_error("_connectToMetasploit8");
 	# check the module cache...
 	local('$sanity');
 	$sanity = call($mclient, "module.options", "exploit", "windows/smb/ms08_067_netapi");
@@ -296,7 +290,7 @@ sub _connectToMetasploit {
 		# store the current global vars to save several other calls later
 		global('%MSF_GLOBAL');
 		local('$value');
-	
+
 		foreach $value (parseTextTable($3, @("Name", "Value"))) {
 			%MSF_GLOBAL[$value['Name']] = $value['Value'];
 		}
@@ -360,6 +354,10 @@ sub postSetup {
 		[[$cortana getSharedData] put: "&generateArtifacts",  &_generateArtifacts];
 		[[$cortana getSharedData] put: "&createFileBrowser",  &createFileBrowser];
 
+		# cobalt strike specific stuff
+		[[$cortana getSharedData] put: "&createBeaconConsole", &createBeaconConsole];
+		[[$cortana getSharedData] put: "&createBeaconBrowser", &createBeaconBrowser];
+
 		if ($MY_ADDRESS ne "") {
 			print_info("Starting Cortana on $MY_ADDRESS");
 			[$cortana start: $MY_ADDRESS];
@@ -422,9 +420,9 @@ sub main {
 
 sub checkDir {
 	# set the directory where everything exciting and fun will happen.
-	if (cwd() eq "/Applications" || !-canwrite cwd() || isWindows()) {
+	if ("/Applications/*" iswm cwd() || !-canwrite cwd() || isWindows()) {
 		local('$dir');
-		$dir = getFileProper(systemProperties()["user.home"], "armitage-tmp");
+		$dir = getFileProper(systemProperties()["user.home"], "cobaltstrike-tmp");
 		if (!-exists $dir) {
 			mkdir($dir);
 		}
@@ -434,12 +432,13 @@ sub checkDir {
 }
 
 checkDir();
+checkLicense();
 
 if ($CLIENT_CONFIG !is $null && -exists $CLIENT_CONFIG) {
 	local('$config');
 	$config = [new Properties];
 	[$config load: [new java.io.FileInputStream: $CLIENT_CONFIG]];
-	connectToMetasploit([$config getProperty: "host", "127.0.0.1"], 
+	connectToMetasploit([$config getProperty: "host", "127.0.0.1"],
 				[$config getProperty: "port", "55553"],
 				[$config getProperty: "user", "msf"],
 				[$config getProperty: "pass", "test"], 1);
