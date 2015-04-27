@@ -212,7 +212,7 @@ sub _connectToMetasploit {
 	print_error("_connectToMetasploit1");
 	# first things first, get version information...
 	local('$rep $major $minor $update');
-	print_error("mclient=$mclient.rpcToken");
+	print_error("mclient=$mclient");
 	$rep = call($mclient, "core.version");
 	print_error("rep=$rep");
 	if ($rep['version'] ismatch '(\d+)\.(\d+)\.(.*?)') {
